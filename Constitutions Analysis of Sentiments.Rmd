@@ -1,0 +1,156 @@
+---
+title: "Constitutions Analysis of sentiments"
+author: "Alfredo Nasiff"
+date: "4/7/2020"
+output: html_document
+---
+Introduction
+
+Resources
+
+Constitutions' Database: https://www.constituteproject.org/
+```{r}
+library(tidytext)
+library(textdata)
+library(tidyverse)
+library(pdftools)
+library(utils)
+
+list_sentiment <- get_sentiments('nrc')
+
+setwd("/Users/alfredo/Documents/ALFRE/MADE BY ALFREDO NASIFF FORS/PROYECTO DE CONSTITUCIÓN ANALISIS/R")
+```
+
+Open the files and convert Character to tibble:
+
+```{r}
+files <- list.files(pattern = "pdf$")
+files_as_pdf <- lapply(files, pdf_text)
+files_as_tibble <- lapply(files_as_pdf, function(x) tibble(txt=x))
+```
+
+Name the files
+
+```{r}
+files_names <- unlist(lapply(files, strsplit, ".pdf"))
+files_as_tibble <- setNames(files_as_tibble, nm = files_names)
+```
+
+We can now answer questions such as “what are the most commonly used words?
+
+```{r}
+files_by_word <- lapply(files_as_tibble, unnest_tokens, word, txt)
+files_by_word_count <- lapply(files_by_word, dplyr::count, word)
+```
+
+It is not surprising that these are the top words. The top words are not informative. The tidytext package has a database of these commonly used words, referred to as stop words in text mining. If we filter out rows representing stop words with filter(!word %in% stop_words$word):
+
+```{r}
+files_definitive <- lapply(files_by_word_count, filter, !word %in% stop_words$word)
+```
+
+For our analysis, we are interested in exploring the different sentiments of each Constitution so we will use the nrc lexicon:
+
+```{r}
+list_sentiment <- list_sentiment %>%
+  select(word, sentiment)
+```
+
+We can combine the words and sentiments using inner_join, which will only keep words associated with a sentiment:
+
+```{r}
+files_definitive_sentiment <- lapply(files_definitive, inner_join, list_sentiment, by = "word", copy = FALSE)
+files_definitive_sentiment <- lapply(files_definitive_sentiment, arrange, desc(n))
+```
+
+It could happen that the same word got two sentiments, this is due to nrc database defines two sentiments for the same word (e.g. "president"):
+
+```{r}
+list_sentiment %>% filter(word == "president")
+```
+
+Now we are ready to count the sentiments:
+
+```{r}
+sentiment_counts <- lapply(files_definitive_sentiment, dplyr::count, sentiment)
+sentiment_counts <- lapply(sentiment_counts, arrange, desc(n))
+```
+
+For each sentiment, we can compute the odds: proportion of words with sentiment versus proportion of words without.
+
+```{r}
+sentiment_counts_odds <- lapply(sentiment_counts, mutate, odds = n / (sum(n) - n))
+```
+
+Converting this list into a data frame with only the 'odds' and 'sentiment' columns by country:
+
+```{r}
+sentiment_counts_odds_df <- ldply(sentiment_counts_odds, data.frame)
+sentiment_counts_odds_df <- sentiment_counts_odds_df %>% select(-n)
+sentiment_counts_odds_df$sentiment <- as.factor(sentiment_counts_odds_df$sentiment)
+```
+
+Now let's put the data in graphs:
+
+```{r}
+how_many_sentiments <- length(unique(list_sentiment$sentiment))
+for (i in 1:how_many_sentiments){
+  by_sentiment_df <- sentiment_counts_odds_df %>% filter(sentiment == sentiment[i])
+  five_most <- by_sentiment_df  %>% top_n(5, odds)
+  five_less <- by_sentiment_df  %>% top_n(-5, odds)
+  odds_mean <- mean(by_sentiment_df$odds)
+  five_most_less <- rbind(five_most, five_less)
+  plot <- ggplot(five_most_less, aes(reorder(.id, odds), odds)) + geom_point() + ggtitle(sentiment_counts_odds_df$sentiment[i]) + xlab("Country") + theme(axis.text.x = element_text(size = 7)) + geom_hline(yintercept = odds_mean, color = "red") + annotate("text", x = 6, y = odds_mean + 0.002, label = "mean")
+  print(plot)
+}
+```
+
+Now let´s classify the countries as "socialist" or "capitalist" as per https://en.wikipedia.org/wiki/List_of_socialist_states, including multi-party states with governing communist or socialist parties, countries with constitutional references to socialism and Marxist–Leninist states as "socialist" and the rest as "capitalist".
+
+```{r}
+system_data <- read.csv("/Users/alfredo/Documents/ALFRE/MADE BY ALFREDO NASIFF FORS/PROYECTO DE CONSTITUCIÓN ANALISIS/R/Socialist's countries.csv")
+system_data_df <- data.frame(system_data)
+```
+Next, the binding of the two tables:
+```{r}
+sentiment_odds_system_df <- merge(sentiment_counts_odds_df, system_data_df, by = ".id")
+```
+Now we are ready to do the graph as before:
+```{r}
+for (i in 1:how_many_sentiments){
+  by_sentiment_df <- sentiment_odds_system_df %>% filter(sentiment == sentiment[i])
+  five_most_capitalist <- by_sentiment_df  %>% filter(system == "capitalist") %>% top_n(5, odds)
+  five_most_socialist <- by_sentiment_df  %>% filter(system == "socialist") %>% top_n(5, odds)
+  five_most_most <- rbind(five_most_capitalist, five_most_socialist)
+  plot <- ggplot(five_most_most, aes(reorder(.id, odds), odds, color = system)) + geom_point() + ggtitle(sentiment_counts_odds_df$sentiment[i]) + xlab("Country") + theme(axis.text.x = element_text(size = 7))
+  print(plot)
+}
+```
+
+Grouped by sentiment and system, these are the values in the mean:
+
+```{r}
+by_system_mean_all_sentiments <- sentiment_odds_system_df %>% dplyr::group_by(sentiment, system) %>% dplyr::summarise(mean_system = mean(odds, na.rm = TRUE))
+by_system_mean_all_sentiments_diff <- by_system_mean_all_sentiments %>% dplyr::group_by(sentiment) %>% dplyr::summarise(diff = abs(diff(mean_system)))
+```
+
+Let's make the plots comparing the mean of socialist vs. capitalist countries for each sentiment:
+
+```{r}
+for (i in 1:how_many_sentiments){
+  by_sentiment_df <- sentiment_odds_system_df %>% filter(sentiment == sentiment[i])
+  by_sentiment_df <- by_sentiment_df[c(".id", "sentiment", "system", "odds")] %>% select(-.id, -sentiment)
+  by_system_mean <- by_sentiment_df %>% dplyr::group_by(system) %>% dplyr::summarise(mean_system = mean(odds, na.rm = TRUE))
+  plot <- ggplot(by_system_mean, aes(x = system, y = mean_system, color = system)) + geom_bar(stat='identity', width = 0.2) + ggtitle(sentiment_counts_odds_df$sentiment[i]) + geom_text(aes(label=round(mean_system,3)), vjust=1.6, color="white", size=3.5) + theme_minimal()
+  print(plot)
+}
+```
+
+Now, lets count the words beginning with the letters "soci" from the latin "socius" meaning "sharing, allied" by country and the words containing "sociali" and "capit":
+
+```{r}
+count_especific_words <- plyr::ldply(files_definitive, data.frame)
+count_words_social <- count_especific_words %>% dplyr::filter(grepl("soci",word)) %>% dplyr::group_by(.id) %>% dplyr::summarise(n = sum(n)) %>% arrange(desc(n))
+count_words_sociali <- count_especific_words %>% dplyr::filter(grepl("sociali",word)) %>% dplyr::group_by(.id) %>% dplyr::summarise(n = sum(n)) %>% arrange(desc(n))
+count_words_capit <- count_especific_words %>% dplyr::filter(grepl("capit",word)) %>% dplyr::group_by(.id) %>% dplyr::summarise(n = sum(n = sum(n))) %>% arrange(desc(n))
+```
