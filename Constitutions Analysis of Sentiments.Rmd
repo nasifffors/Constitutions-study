@@ -2,7 +2,9 @@
 title: "Constitutions Analysis of sentiments"
 author: "Alfredo Nasiff"
 date: "4/7/2020"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 Introduction
 
@@ -85,12 +87,14 @@ sentiment_counts_odds <- lapply(sentiment_counts, mutate, odds = n / (sum(n) - n
 Converting this list into a data frame with only the 'odds' and 'sentiment' columns by country:
 
 ```{r}
-sentiment_counts_odds_df <- ldply(sentiment_counts_odds, data.frame)
+sentiment_counts_odds_df <- plyr::ldply(sentiment_counts_odds, data.frame)
 sentiment_counts_odds_df <- sentiment_counts_odds_df %>% select(-n)
 sentiment_counts_odds_df$sentiment <- as.factor(sentiment_counts_odds_df$sentiment)
+sentiment_counts_odds_df$.id <- as.factor(sentiment_counts_odds_df$.id)
+head(sentiment_counts_odds_df,10)
 ```
 
-Now let's put the data in graphs:
+Now let's put the data in graphs showing the top and bottom 5 countries for each sentiment:
 
 ```{r}
 how_many_sentiments <- length(unique(list_sentiment$sentiment))
@@ -105,7 +109,9 @@ for (i in 1:how_many_sentiments){
 }
 ```
 
-Now let´s classify the countries as "socialist" or "capitalist" as per https://en.wikipedia.org/wiki/List_of_socialist_states, including multi-party states with governing communist or socialist parties, countries with constitutional references to socialism and Marxist–Leninist states as "socialist" and the rest as "capitalist".
+For me it was a surprise to find out that Korea North has the second most positive, the third least negative, the second least fearful and disgustful, the least sad and angry, and the most joyful Constitution among all countries, though I was not surprised to see it in the top of anticipation. Overall, Korea North made it either in the top or bottom five in 8 of the 10 sentiments, other countries are not even close.
+
+Now let´s classify the countries as "socialist" or "capitalist" as per https://en.wikipedia.org/wiki/List_of_socialist_states, which includes multi-party states with governing communist or socialist parties, countries with constitutional references to socialism and Marxist–Leninist states as "socialist" The rest will be classified as "capitalist".
 
 ```{r}
 system_data <- read.csv("/Users/alfredo/Documents/ALFRE/MADE BY ALFREDO NASIFF FORS/PROYECTO DE CONSTITUCIÓN ANALISIS/R/Socialist's countries.csv")
@@ -151,6 +157,9 @@ Now, lets count the words beginning with the letters "soci" from the latin "soci
 ```{r}
 count_especific_words <- plyr::ldply(files_definitive, data.frame)
 count_words_social <- count_especific_words %>% dplyr::filter(grepl("soci",word)) %>% dplyr::group_by(.id) %>% dplyr::summarise(n = sum(n)) %>% arrange(desc(n))
+count_words_social
 count_words_sociali <- count_especific_words %>% dplyr::filter(grepl("sociali",word)) %>% dplyr::group_by(.id) %>% dplyr::summarise(n = sum(n)) %>% arrange(desc(n))
+count_words_sociali
 count_words_capit <- count_especific_words %>% dplyr::filter(grepl("capit",word)) %>% dplyr::group_by(.id) %>% dplyr::summarise(n = sum(n = sum(n))) %>% arrange(desc(n))
+count_words_capit
 ```
